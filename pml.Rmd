@@ -1,0 +1,105 @@
+---
+title: "Practical Machine Learning Assignment"
+author: "Eric Z."
+date: "February 28, 2016"
+output: html_document
+---
+
+Background
+--
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+
+Loading, cleaning and understanding the data
+--
+As a first step, the training and testing datasets are downloaded from the website; and are loaded into R during which the nulls and #DIV/0! errors get cleaned up.
+
+```{r, echo = TRUE}
+## getting the training and testing data
+rm(list = ls())
+setwd("~/Dropbox/Learn/ds/practical_machine_learning")
+
+trainingURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testingURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+if (!file.exists("./pml-training.csv")) {
+    download.file(trainingURL, destfile = "./pml-training.csv", method = "curl")
+}
+if (!file.exists("./pml-testing.csv")) {
+    download.file(testingURL, destfile = "./pml-testing.csv", method = "curl")
+}
+
+## loading the training and testing data
+train_and_val <- read.csv("./pml-training.csv", header = TRUE, na.strings = c("", "#DIV/0!"))
+testing <- read.csv("./pml-testing.csv", header = TRUE, na.strings = c("", "#DIV/0!"))
+```
+
+The next step is to split the training dataset into training and validation. For this exercise, 75% of the data is used towards model training, given that the size of the dataset is decent. The rest of the data is used for validation.
+
+```{r, echo = TRUE}
+## split the train_and_val dataset
+library(ggplot2)
+library(lattice)
+library(caret)
+
+set.seed(686452)
+
+inTrain <- createDataPartition(train_and_val$classe, p = 0.75, list = FALSE)
+training <- train_and_val[inTrain,]
+validation <- train_and_val[-inTrain,]
+```
+
+Based on observation, there are many columns populated with nearly all NAs. Caret function nearZeroVar helps identify them, along with columns with few distict values.
+```{r, echo = TRUE}
+## understanding the data
+dim(training)
+table(training$user_name, training$classe)
+
+## remove the columns that are nearly all null/NA or with few distinct values
+## remove the timestamps and other irrelavent variables
+nzvCols <- nearZeroVar(training)
+training <- training[,-nzvCols]
+training <- training[,colSums(is.na(training)) < nrow(training) * 0.9]
+training <- training[,-c(1,3,4,5)]
+
+validation <- validation[,-nzvCols]
+validation <- validation[,colSums(is.na(validation)) < nrow(validation) * 0.9]
+validation <- validation[,-c(1,3,4,5)]
+
+testing <- testing[,-nzvCols]
+testing <- testing[,colSums(is.na(testing)) < nrow(testing) * 0.9]
+testing <- testing[,-c(1,3,4,5)]
+
+```
+
+Once the data is cleaned up, more explorary data analysis.
+```{r, echo = TRUE}
+featurePlot(x = training[,c("total_accel_belt","total_accel_arm","total_accel_forearm")], y = training$classe, plot = "pairs")
+
+library(gridExtra)
+belt <- qplot(classe, total_accel_belt, data = training, fill = classe, geom = c("boxplot", "jitter"))
+arm <- qplot(classe, total_accel_arm, data = training, fill = classe, geom = c("boxplot", "jitter"))
+forearm <- qplot(classe, total_accel_forearm, data = training, fill = classe, geom = c("boxplot", "jitter"))
+grid.arrange(belt, arm, forearm, ncol = 1)
+
+```
+
+Model training and validation
+--
+Gradient boosting and random forest are two poplular algorithms that often have an edge in performance. In particular, random forest has several appealing properties that make it potentially attractive for this problem: (i) all predictors including those with weak effects, highly correlated and interacting ones have a chance to contribute to the model fit, (ii) complex interactions between predictors can be easily accommodated, (iii) it makes no distributional assumptions about the predictor variables.
+```{r, echo = TRUE}
+set.seed(1343343)
+library(randomForest)
+
+rfFit <- randomForest(classe ~ ., data = training, ntree = 50)
+rfFit
+
+validationPred <- predict(rfFit, validation)
+confusionMatrix(validationPred, validation$classe)
+
+testPred <- predict(rfFit, testing)
+testPred
+```
+
+Conclusion
+--
+The random forest algorithm works well for this particular problem, with very high accuracy and Kappa value on both the training and validation datasets.
